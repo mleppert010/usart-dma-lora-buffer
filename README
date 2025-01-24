@@ -1,0 +1,5 @@
+DMA/Ring Buffer based line buffering for RYLR998 module with loopback, intended for use non buffering serial terminals.
+
+Will use DMA to move USART bytes into a ring buffer, which is then cleared at half intervals, or on IDLE line to a larger buffer for analysis.
+
+The program will then manage looping back this data, as well as performing backspace, delete, and arrow key functionality.
