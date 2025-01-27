@@ -33,18 +33,6 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-/**
- * \brief           UART Periperal Instance Data Buffers
- * \note            Reusability of UART handling functions by passing peripheral typedef, including relevant buffer
- */
-typedef struct {
-    lwrb_t tx_rb;
-    lwrb_t rx_process_rb;
-    uint8_t rx_dma_buff[64];
-    volatile size_t tx_dma_current_len;
-    size_t old_pos;
-} uart_buff_t;
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -71,78 +59,37 @@ typedef struct {
 
 /* USER CODE BEGIN PV */
 
-/**
- * \brief           Uart instance for LPUART1 peripheral
- */
-uart_buff_t lpuart1;
-
-/**
- * \brief           Uart instance for USART1 peripheral
- */
-uart_buff_t usart1;
 
 /**
  * \brief           Ring buffer instance for TX data
  */
-// lwrb_t lpuart1_tx_rb;
+lwrb_t lpuart1_tx_rb, usart1_tx_rb;
 
 /**
  * \brief           Ring buffer data array for TX DMA
  */
-uint8_t lpuart1_tx_rb_data[384];
+uint8_t lpuart1_tx_rb_data[384], usart1_tx_rb_data[384];
 
 /**
  * \brief           Length of currently active TX DMA transfer
  */
-//volatile size_t lpuart1_tx_dma_current_len;
+volatile size_t lpuart1_tx_dma_current_len, usart1_tx_dma_current_len;
 
 /**
  * \brief           USART RX buffer for DMA to transfer every received byte
  * \note            Contains raw data that are about to be processed by different events
  */
-//uint8_t lpuart1_rx_dma_buffer[64];
+uint8_t lpuart1_rx_dma_buff[64], usart1_rx_dma_buff[64];
 
 /**
  * \brief           Ring buffer instance for processing buffer
  */
-//lwrb_t lpuart1_rx_process_rb;
+lwrb_t lpuart1_rx_process_rb, usart1_rx_process_rb;
 
 /**
  * \brief           Ring buffer data array for processing
  */
-uint8_t lpuart1_rx_process_rb_data[384];
-
-/**
- * \brief           Ring buffer instance for TX data
- */
-//lwrb_t usart1_tx_rb;
-
-/**
- * \brief           Ring buffer data array for TX DMA
- */
-uint8_t usart1_tx_rb_data[384];
-
-/**
- * \brief           Length of currently active TX DMA transfer
- */
-//volatile size_t usart1_tx_dma_current_len;
-
-/**
- * \brief           USART RX buffer for DMA to transfer every received byte
- * \note            Contains raw data that are about to be processed by different events
- */
-//uint8_t usart1_rx_dma_buffer[64];
-
-/**
- * \brief           Ring buffer instance for processing buffer
- */
-//lwrb_t usart1_rx_process_rb;
-
-/**
- * \brief           Ring buffer data array for processing
- */
-uint8_t usart1_rx_process_rb_data[384];
-
+uint8_t lpuart1_rx_process_rb_data[384], usart1_rx_process_rb_data[384];
 
 /* USER CODE END PV */
 
@@ -151,10 +98,10 @@ void SystemClock_Config(void);
 
 /* USER CODE BEGIN PFP */
 
-void uart_init(void);
-void uart_rx_check(uart_buff_t* uart_buff);
-void uart_process_data(const void* data, size_t len);
-void uart_send_string(const char* str);
+void usart_init(void);
+void usart_rx_check(uart_buff_t* uart_buff);
+void usart_process_data(const void* data, size_t len);
+void usart_send_string(const char* str);
 void process_char_noloop(size_t peekahead, uint8_t* old_char);
 void process_char_loop(size_t peekahead, uint8_t* old_char);
 
@@ -207,16 +154,16 @@ int main(void) {
     /* USER CODE BEGIN 2 */
 
     /* Initialize lpuart1 tx ringbuff */
-    lwrb_init(&lpuart1.tx_rb, lpuart1_tx_rb_data, sizeof(lpuart1_tx_rb_data));
+    lwrb_init(&lpuart1_tx_rb, lpuart1_tx_rb_data, sizeof(lpuart1_tx_rb_data));
 
     /* Initialize lpuart1 rx processing ringbuffer */
-    lwrb_init(&lpuart1.rx_process_rb, lpuart1_rx_process_rb_data, sizeof(lpuart1_rx_process_rb_data));
+    lwrb_init(&lpuart1_rx_process_rb, lpuart1_rx_process_rb_data, sizeof(lpuart1_rx_process_rb_data));
 
     /* Initialize usart1 tx ringbuff */
-    lwrb_init(&usart1.tx_rb, usart1_tx_rb_data, sizeof(usart1_tx_rb_data));
+    lwrb_init(&usart1_tx_rb, usart1_tx_rb_data, sizeof(usart1_tx_rb_data));
 
     /* Initialize usart1 rx processing ringbuffer */
-    lwrb_init(&usart1.rx_process_rb, usart1_rx_process_rb_data, sizeof(usart1_rx_process_rb_data));
+    lwrb_init(&usart1_rx_process_rb, usart1_rx_process_rb_data, sizeof(usart1_rx_process_rb_data));
 
 
     /* Initialize all configured peripherals */
