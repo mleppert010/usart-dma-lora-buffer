@@ -9,7 +9,8 @@
         "stddef.h": "c",
         "stdint.h": "c",
         "string.h": "c",
-        "main.h": "c"
+        "main.h": "c",
+        "cstdint": "c"
     },
     "C_Cpp.clang_format_fallbackStyle": "{ BasedOnStyle: Google, IndentWidth: 4, ColumnLimit: 0}"
 }

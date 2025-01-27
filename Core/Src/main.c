@@ -33,6 +33,16 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+typedef struct {
+    lwrb_t tx_rb;
+    uint8_t tx_rb_data[384];
+    lwrb_t rx_process_rb;
+    uint8_t rx_process_rb_data[384];
+    volatile size_t tx_dma_current_len;
+    uint8_t rx_dma_buff[64];
+    size_t old_pos;
+} usart_buff_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -59,37 +69,43 @@
 
 /* USER CODE BEGIN PV */
 
+usart_buff_t lpuart1_buff, usart1_buff;
 
 /**
  * \brief           Ring buffer instance for TX data
  */
-lwrb_t lpuart1_tx_rb, usart1_tx_rb;
+//lwrb_t lpuart1_tx_rb, usart1_tx_rb;
 
 /**
  * \brief           Ring buffer data array for TX DMA
  */
-uint8_t lpuart1_tx_rb_data[384], usart1_tx_rb_data[384];
+//uint8_t lpuart1_tx_rb_data[384], usart1_tx_rb_data[384];
 
 /**
  * \brief           Length of currently active TX DMA transfer
  */
-volatile size_t lpuart1_tx_dma_current_len, usart1_tx_dma_current_len;
+//volatile size_t lpuart1_tx_dma_current_len, usart1_tx_dma_current_len;
 
 /**
  * \brief           USART RX buffer for DMA to transfer every received byte
  * \note            Contains raw data that are about to be processed by different events
  */
-uint8_t lpuart1_rx_dma_buff[64], usart1_rx_dma_buff[64];
+//uint8_t lpuart1_rx_dma_buff[64], usart1_rx_dma_buff[64];
+
+/**
+ * \brief           DMA RX buffer previous position counter
+ */
+//size_t lpuart1_old_pos, usart1_old_pos;
 
 /**
  * \brief           Ring buffer instance for processing buffer
  */
-lwrb_t lpuart1_rx_process_rb, usart1_rx_process_rb;
+//lwrb_t lpuart1_rx_process_rb, usart1_rx_process_rb;
 
 /**
  * \brief           Ring buffer data array for processing
  */
-uint8_t lpuart1_rx_process_rb_data[384], usart1_rx_process_rb_data[384];
+//uint8_t lpuart1_rx_process_rb_data[384], usart1_rx_process_rb_data[384];
 
 /* USER CODE END PV */
 
@@ -99,11 +115,12 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
 void usart_init(void);
-void usart_rx_check(uart_buff_t* uart_buff);
-void usart_process_data(const void* data, size_t len);
+void usart_rx_check(usart_buff_t* usart_buff);
+void usart_process_data(usart_buff_t* usart_buff, const void* data, size_t len);
 void usart_send_string(const char* str);
-void process_char_noloop(size_t peekahead, uint8_t* old_char);
-void process_char_loop(size_t peekahead, uint8_t* old_char);
+void process_char_noloop(usart_buff_t* usart_buff, size_t peekahead, uint8_t* old_char);
+void process_char_loop(usart_buff_t* usart_buff, size_t peekahead, uint8_t* old_char);
+uint8_t usart_start_tx_dma_transfer(usart_buff_t* usart_buff);
 
 /* USER CODE END PFP */
 
@@ -154,16 +171,16 @@ int main(void) {
     /* USER CODE BEGIN 2 */
 
     /* Initialize lpuart1 tx ringbuff */
-    lwrb_init(&lpuart1_tx_rb, lpuart1_tx_rb_data, sizeof(lpuart1_tx_rb_data));
+    lwrb_init(&lpuart1_buff.tx_rb, lpuart1_buff.tx_rb_data, sizeof(lpuart1_buff.tx_rb_data));
 
     /* Initialize lpuart1 rx processing ringbuffer */
-    lwrb_init(&lpuart1_rx_process_rb, lpuart1_rx_process_rb_data, sizeof(lpuart1_rx_process_rb_data));
+    lwrb_init(&lpuart1_buff.rx_process_rb, lpuart1_buff.rx_process_rb_data, sizeof(lpuart1_buff.rx_process_rb_data));
 
     /* Initialize usart1 tx ringbuff */
-    lwrb_init(&usart1_tx_rb, usart1_tx_rb_data, sizeof(usart1_tx_rb_data));
+    lwrb_init(&usart1_buff.tx_rb, usart1_buff.tx_rb_data, sizeof(usart1_buff.tx_rb_data));
 
     /* Initialize usart1 rx processing ringbuffer */
-    lwrb_init(&usart1_rx_process_rb, usart1_rx_process_rb_data, sizeof(usart1_rx_process_rb_data));
+    lwrb_init(&usart1_buff.rx_process_rb, usart1_buff.rx_process_rb_data, sizeof(usart1_buff.rx_process_rb_data));
 
 
     /* Initialize all configured peripherals */
@@ -183,14 +200,14 @@ int main(void) {
         /* USER CODE BEGIN 3 */
 
         if (!LOOPBACK) {
-            if (peekahead < lwrb_get_full(&lpuart1.rx_process_rb)) {
+            if (peekahead < lwrb_get_full(&lpuart1_buff.rx_process_rb)) {
                 process_char_noloop(peekahead);
                 ++peekahead;
             }
         } else {
-            if (peekahead < lwrb_get_full(&lpuart1.rx_process_rb))
+            if (peekahead < lwrb_get_full(&lpuart1_buff.rx_process_rb))
         }
-        if (peekahead < lwrb_get_full(&lpuart1.rx_process_rb)) {
+        if (peekahead < lwrb_get_full(&lpuart1_buff.rx_process_rb)) {
             {
 
         }
@@ -262,14 +279,13 @@ void SystemClock_Config(void) {
  * - Improve architecture design to achieve faster reads
  * - Increase raw buffer size and allow DMA to write more data before this function is called
  */
-void
-uart_rx_check(uart_buff_t* uart_buff) {
+void usart_rx_check(usart_buff_t* usart_buff) {
     size_t pos;
 
     /* Calculate current position in buffer and check for new data available */
-    pos = ARRAY_LEN(uart_buff->rx_dma_buff) - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_1);
-    if (pos != uart_buff->old_pos) {                       /* Check change in received data */
-        if (pos > uart_buff->old_pos) {                    /* Current position is over previous one */
+    pos = ARRAY_LEN(usart_buff->rx_dma_buff) - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_1);
+    if (pos != usart_buff->old_pos) {                       /* Check change in received data */
+        if (pos > usart_buff->old_pos) {                    /* Current position is over previous one */
             /*
              * Processing is done in "linear" mode.
              *
@@ -286,7 +302,7 @@ uart_rx_check(uart_buff_t* uart_buff) {
              * [   7   ]
              * [ N - 1 ]
              */
-            usart_process_data(&uart_buff->rx_dma_buff[uart_buff->old_pos], pos - uart_buff->old_pos);
+            usart_process_data(usart_buff, &usart_buff->rx_dma_buff[usart_buff->old_pos], pos - usart_buff->old_pos);
         } else {
             /*
              * Processing is done in "overflow" mode..
@@ -304,12 +320,12 @@ uart_rx_check(uart_buff_t* uart_buff) {
              * [   7   ]            |                                 |
              * [ N - 1 ]            |---------------------------------|
              */
-            usart_process_data(uart_buff->rx_dma_buff[uart_buff->old_pos], ARRAY_LEN(uart_buff->rx_dma_buff) - uart_buff->old_pos);
+            usart_process_data(usart_buff, &usart_buff->rx_dma_buff[usart_buff->old_pos], ARRAY_LEN(usart_buff->rx_dma_buff) - usart_buff->old_pos);
             if (pos > 0) {
-                usart_process_data(&uart_buff->rx_dma_buff[0], pos);
+                usart_process_data(usart_buff, &usart_buff->rx_dma_buff[0], pos);
             }
         }
-        uart_buff->old_pos = pos;                          /* Save current position as old for next transfers */
+        usart_buff->old_pos = pos;                          /* Save current position as old for next transfers */
     }
 }
 
@@ -317,8 +333,7 @@ uart_rx_check(uart_buff_t* uart_buff) {
  * \brief           Check if DMA is active and if not try to send data
  * \return          `1` if transfer just started, `0` if on-going or no data to transmit
  */
-uint8_t
-uart_start_tx_dma_transfer(uart_buff_t* uart_buff) {
+uint8_t usart_start_tx_dma_transfer(usart_buff_t* usart_buff) {
     uint32_t primask;
     uint8_t started = 0;
 
@@ -351,8 +366,8 @@ uart_start_tx_dma_transfer(uart_buff_t* uart_buff) {
      */
     primask = __get_PRIMASK();
     __disable_irq();
-    if (uart_buff->tx_dma_current_len == 0
-            && (uart_buff->tx_dma_current_len = lwrb_get_linear_block_read_length(&uart_buff->tx_rb)) > 0) {
+    if (usart_buff->tx_dma_current_len == 0
+            && (usart_buff->tx_dma_current_len = lwrb_get_linear_block_read_length(&usart_buff->tx_rb)) > 0) {
         /* Disable channel if enabled */
         LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_2);
 
@@ -363,8 +378,8 @@ uart_start_tx_dma_transfer(uart_buff_t* uart_buff) {
         LL_DMA_ClearFlag_TE2(DMA1);
 
         /* Prepare DMA data and length */
-        LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_2, usart_tx_dma_current_len);
-        LL_DMA_SetMemoryAddress(DMA1, LL_DMA_CHANNEL_2, (uint32_t)lwrb_get_linear_block_read_address(&usart_tx_rb));
+        LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_2, usart_buff->tx_dma_current_len);
+        LL_DMA_SetMemoryAddress(DMA1, LL_DMA_CHANNEL_2, (uint32_t)lwrb_get_linear_block_read_address(&usart_buff->tx_rb));
 
         /* Start transfer */
         LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_2);
@@ -380,19 +395,17 @@ uart_start_tx_dma_transfer(uart_buff_t* uart_buff) {
  * \param[in]       data: Data to process
  * \param[in]       len: Length in units of bytes
  */
-void
-usart_process_data(const void* data, size_t len) {
-    lwrb_write(&rx_process_rb, data, len);        /* Write data to RX processing buffer for character analysis */
+void usart_process_data(usart_buff_t* usart_buff, const void* data, size_t len) {
+    lwrb_write(&usart_buff->rx_process_rb, data, len);        /* Write data to RX processing buffer for character analysis */
 }
 
 /**
  * \brief           Send string to USART
  * \param[in]       str: String to send
  */
-void
-uart_send_string(const char* str) {
-    lwrb_write(&usart_tx_rb, str, strlen(str)); /* Write data to TX buffer for loopback */
-    usart_start_tx_dma_transfer();              /* Then try to start transfer */
+void uart_send_string(usart_buff_t* usart_buff, const char* str) {
+    lwrb_write(&usart_buff->tx_rb, str, strlen(str)); /* Write data to TX buffer for loopback */
+    usart_start_tx_dma_transfer(usart_buff);              /* Then try to start transfer */
 }
 
 /**
@@ -441,8 +454,8 @@ uart_init(void) {
     LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PDATAALIGN_BYTE);
     LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_BYTE);
     LL_DMA_SetPeriphAddress(DMA1, LL_DMA_CHANNEL_1, LL_LPUART_DMA_GetRegAddr(LPUART1, LL_LPUART_DMA_REG_DATA_RECEIVE));
-    LL_DMA_SetMemoryAddress(DMA1, LL_DMA_CHANNEL_1, (uint32_t)lpuart1.rx_dma_buff);
-    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1, ARRAY_LEN(lpuart1.rx_dma_buff));
+    LL_DMA_SetMemoryAddress(DMA1, LL_DMA_CHANNEL_1, (uint32_t)lpuart1_buff.rx_dma_buff);
+    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1, ARRAY_LEN(lpuart1_buff.rx_dma_buff));
 
     /* LPUART1 TX DMA init */
     LL_DMA_SetPeriphRequest(DMA1, LL_DMA_CHANNEL_2, LL_DMAMUX_REQ_LPUART1_TX);
@@ -505,13 +518,13 @@ DMA1_Channel1_IRQHandler(void) {
     /* Check half-transfer complete interrupt */
     if (LL_DMA_IsEnabledIT_HT(DMA1, LL_DMA_CHANNEL_1) && LL_DMA_IsActiveFlag_HT1(DMA1)) {
         LL_DMA_ClearFlag_HT1(DMA1);             /* Clear half-transfer complete flag */
-        lpuart1_rx_check();                       /* Check data */
+        usart_rx_check(&usart1_buff);                       /* Check data */
     }
 
     /* Check transfer-complete interrupt */
     if (LL_DMA_IsEnabledIT_TC(DMA1, LL_DMA_CHANNEL_1) && LL_DMA_IsActiveFlag_TC1(DMA1)) {
         LL_DMA_ClearFlag_TC1(DMA1);             /* Clear transfer complete flag */
-        lpuart1_rx_check();                       /* Check data */
+        usart_rx_check(&usart1_buff);                       /* Check data */
     }
 
     /* Implement other events when needed */
@@ -525,9 +538,9 @@ DMA1_Channel2_IRQHandler(void) {
     /* Check transfer-complete interrupt */
     if (LL_DMA_IsEnabledIT_TC(DMA1, LL_DMA_CHANNEL_2) && LL_DMA_IsActiveFlag_TC2(DMA1)) {
         LL_DMA_ClearFlag_TC2(DMA1);             /* Clear transfer complete flag */
-        lwrb_skip(&usart_tx_rb, usart_tx_dma_current_len);/* Skip buffer, it has been successfully sent out */
-        usart_tx_dma_current_len = 0;           /* Reset data length */
-        usart_start_tx_dma_transfer();          /* Start new transfer */
+        lwrb_skip(&lpuart1_buff.tx_rb, lpuart1_buff.tx_dma_current_len);/* Skip buffer, it has been successfully sent out */
+        lpuart1_buff.tx_dma_current_len = 0;           /* Reset data length */
+        usart_start_tx_dma_transfer(&lpuart1_buff);          /* Start new transfer */
     }
 
     /* Implement other events when needed */
@@ -542,18 +555,18 @@ LPUART1_IRQHandler(void) {
     /* Check for IDLE line interrupt */
     if (LL_LPUART_IsEnabledIT_IDLE(LPUART1) && LL_LPUART_IsActiveFlag_IDLE(LPUART1)) {
         LL_LPUART_ClearFlag_IDLE(LPUART1);      /* Clear IDLE line flag */
-        lpuart1_rx_check();                       /* Check data */
+        usart_rx_check(&lpuart1_buff);                       /* Check data */
     }
 
     /* Implement other events when needed */
 }
 
 
-void process_char_noloop(size_t peekahead, uint8_t* old_char) {
+void process_char_noloop(usart_buff_t* usart_buff, size_t peekahead, uint8_t* old_char) {
     uint8_t new_char;
     size_t write_length;
 
-    lwrb_peek(&rx_process_rb, peekahead, &new_char, 1);
+    lwrb_peek(&usart_buff->rx_process_rb, peekahead, &new_char, 1);
     if(*old_char == '\r' & new_char == '\n') 
         write_length = lwrb_get_linear_block_read_length(&rx_process_rb);
         lora_send_string
