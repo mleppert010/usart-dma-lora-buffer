@@ -33,14 +33,17 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+/**
+ * \brief           Structure of UART associated buffers and indexes
+ */
 typedef struct {
-    lwrb_t tx_rb;
-    uint8_t tx_rb_data[384];
-    lwrb_t rx_process_rb;
-    uint8_t rx_process_rb_data[384];
-    volatile size_t tx_dma_current_len;
-    uint8_t rx_dma_buff[64];
-    size_t old_pos;
+    lwrb_t tx_rb; /**< TX ring buffer for DMA to read out */
+    uint8_t tx_rb_data[384]; /**< TX ring buffer data */
+    volatile size_t tx_dma_current_len; /**< Current TX DMA transfer length */
+    lwrb_t rx_process_rb; /**< RX data processing ring buffer */
+    uint8_t rx_process_rb_data[384]; /**< RX data processing ring buffer data */
+    uint8_t rx_dma_buff[64]; /**< RX circular buffer for DMA to write to */
+    size_t old_pos; /**< Previous DMA write to index */
 } uart_buff_t;
 
 /* USER CODE END PTD */
@@ -114,7 +117,7 @@ void SystemClock_Config(void);
 
 /* USER CODE BEGIN PFP */
 
-void uart_init(void);
+void lpuart1_init(void);
 void uart_rx_check(uart_buff_t* uart_buff);
 void uart_process_data(uart_buff_t* uart_buff, const void* data, size_t len);
 void uart_send_string(uart_buff_t* uart_buff, const char* str);
@@ -184,7 +187,7 @@ int main(void) {
 
 
     /* Initialize all configured peripherals */
-    uart_init();
+    lpuart1_init();
 
     /* Notify user to start sending data */
     uart_send_string(&lpuart1_buff, "USART DMA example: DMA HT & TC + USART IDLE LINE IRQ + RTOS processing\r\n");
@@ -201,7 +204,7 @@ int main(void) {
 
         if (!LOOPBACK) {
             if (peekahead < lwrb_get_full(&lpuart1_buff.rx_process_rb)) {
-                process_char_noloop(&lpuart1_buff, peekahead);
+                process_char_noloop(&lpuart1_buff, peekahead, old_char);
                 ++peekahead;
             }
         } else {
@@ -401,6 +404,7 @@ void uart_process_data(uart_buff_t* uart_buff, const void* data, size_t len) {
 
 /**
  * \brief           Send string to UART
+ * \note            Will queue to send if DMA transfer in progress
  * \param[in]       uart_buff: UART peripheral buffers to use
  * \param[in]       str: String to send
  */
@@ -411,7 +415,7 @@ void uart_send_string(uart_buff_t* uart_buff, const char* str) {
 
 /**
  * \brief           Send data to UART
- * \note            Either process them directly or copy to other bigger buffer
+ * \note            Will queue to send if DMA transfer in progress
  * \param[in]       uart_buff: UART peripheral buffers to use
  * \param[in]       data: Data to process
  * \param[in]       len: Length in units of bytes
@@ -424,7 +428,7 @@ void uart_send_data(uart_buff_t* uart_buff, const char* str, size_t len) {
 /**
  * \brief           LPUART1 Initialization Function
  */
-void uart_init(void) {
+void lpuart1_init(void) {
     LL_LPUART_InitTypeDef LPUART_InitStruct = {0};
     LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
 
@@ -577,16 +581,16 @@ void process_char_noloop(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_
 
     lwrb_peek(&uart_buff->rx_process_rb, peekahead, &new_char, 1);
     if(*old_char == '\r' & new_char == '\n') {
-        write_length = lwrb_get_linear_block_read_length(&rx_process_rb);
-        uart_send_string(uart_buff, w);
+        write_length = lwrb_get_linear_block_read_length(&uart_buff->rx_process_rb);
+        uart_send_string(uart_buff, );
     }
 }
 
-void process_char_loop(size_t peekahead, uint8_t* old_char) {
+void process_char_loop(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_char) {
     static uint8_t old_char;
     uint8_t new_char;
 
-    lwrb_peek(&rx_process_rb, peekahead, &new_char, 1);
+    lwrb_peek(&uart_buff->rx_process_rb, peekahead, &new_char, 1);
 
 }
 
