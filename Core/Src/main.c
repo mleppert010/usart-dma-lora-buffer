@@ -66,7 +66,7 @@ typedef struct {
 /**
  * \brief           Should tx be looped back
  */
-#define LOOPBACK 1
+#define LOOPBACK 0
 
 /**
  * \brief           Calculate length of statically allocated array
@@ -87,6 +87,7 @@ typedef struct {
 uart_buff_t lpuart1_buff, usart1_buff;
 
 dma_tx_t lpuart1_dma, usart1_dma;
+
 
 /**
  * \brief           Ring buffer instance for TX data
@@ -137,7 +138,7 @@ void uart_process_data(uart_buff_t* uart_buff, const void* data, size_t len);
 void uart_send_string(uart_buff_t* uart_buff, dma_tx_t* dma_tx, const char* str);
 void uart_send_data(uart_buff_t* uart_buff, dma_tx_t* dma_tx, const void* data, size_t len);
 uint8_t uart_start_tx_dma_transfer(uart_buff_t* uart_buff, dma_tx_t* dma_tx);
-void process_char_noloop(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_char);
+uint8_t find_crlf_noloop(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_char);
 void process_char_loop(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_char);
 
 /* USER CODE END PFP */
@@ -153,8 +154,10 @@ void process_char_loop(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_ch
  */
 int main(void) {
     /* USER CODE BEGIN 1 */
-    size_t peekahead = 0;
+    size_t write_len, peekahead;
     uint8_t old_char = 0;
+
+    peekahead = 0;
 
     /* USER CODE END 1 */
 
@@ -219,10 +222,18 @@ int main(void) {
 
         if (!LOOPBACK) {
             if (peekahead < lwrb_get_full(&lpuart1_buff.rx_process_rb)) {
-                if(find_crlf_noloop(&lpuart1_buff, peekahead, old_char)) {
-                    uart_send_data(&usart1_buff, )
+                if(find_crlf_noloop(&lpuart1_buff, peekahead, &old_char)) {
+                    write_len = lwrb_get_linear_block_read_length(&lpuart1_buff.rx_process_rb);
+                    uart_send_data(&lpuart1_buff/*&usart1_buff */, &lpuart1_dma/* &usart1_dma */, lwrb_get_linear_block_read_address(&lpuart1_buff.rx_process_rb), write_len);
+                    lwrb_skip(&lpuart1_buff.rx_process_rb, write_len);
+                    if((write_len = lwrb_get_linear_block_read_length(&lpuart1_buff.rx_process_rb)) > 0) {
+                        uart_send_data(&lpuart1_buff/*&usart1_buff */, &lpuart1_dma/* &usart1_dma */, lwrb_get_linear_block_read_address(&lpuart1_buff.rx_process_rb), write_len);
+                        lwrb_skip(&lpuart1_buff.rx_process_rb, write_len);
+                    }
+                    peekahead = 0;
+                } else {
+                    ++peekahead;
                 }
-                ++peekahead;
             }
         } else {
             if (peekahead < lwrb_get_full(&lpuart1_buff.rx_process_rb)) {
@@ -601,21 +612,20 @@ void LPUART1_IRQHandler(void) {
 }
 
 
-void process_char_noloop(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_char) {
+uint8_t find_crlf_noloop(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_char) {
     uint8_t new_char;
-    size_t write_length;
 
     lwrb_peek(&uart_buff->rx_process_rb, peekahead, &new_char, 1);
-    if(*old_char == '\r' & new_char == '\n') {
-        write_length = lwrb_get_linear_block_read_length(&uart_buff->rx_process_rb);
+    if((*old_char == '\r') & (new_char == '\n')) {
+        *old_char = new_char;
+        return(1);
     }
+
+    *old_char = new_char;
+    return(0);
 }
 
 void process_char_loop(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_char) {
-    static uint8_t old_char;
-    uint8_t new_char;
-
-    lwrb_peek(&uart_buff->rx_process_rb, peekahead, &new_char, 1);
 
 }
 
