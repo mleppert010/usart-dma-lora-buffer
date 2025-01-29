@@ -47,7 +47,8 @@ Core/Src/sysmem.c \
 Core/Src/syscalls.c  \
 lwrb/Src/lwrb.c \
 Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_ll_lpuart.c \
-Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_ll_rcc.c
+Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_ll_rcc.c \
+Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_ll_usart.c
 
 # ASM sources
 ASM_SOURCES =  \
