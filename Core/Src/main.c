@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "lwrb.h"
 
@@ -141,6 +142,8 @@ void uart_send_data(uart_buff_t* uart_buff, dma_tx_t* dma_tx, const void* data, 
 uint8_t uart_start_tx_dma_transfer(uart_buff_t* uart_buff, dma_tx_t* dma_tx);
 uint8_t find_crlf(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_char);
 void process_char_loop(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_char);
+uint8_t rylr_send_string(uart_buff_t* uart_buff, dma_tx_t* dma_tx, uint16_t address, char* str);
+uint8_t rylr_send_data(uart_buff_t* uart_buff, dma_tx_t* dma_tx, uint16_t add, void* data, size_t len);
 
 /* USER CODE END PFP */
 
@@ -213,6 +216,11 @@ int main(void) {
     uart_send_string(&lpuart1_buff, &lpuart1_dma, "UART DMA example: DMA HT & TC + USART IDLE LINE IRQ\r\n");
     uart_send_string(&lpuart1_buff, &lpuart1_dma, "Start sending data to STM32\r\n");
 
+    rylr_send_string(&usart1_buff, &usart1_dma, 325, "This is a test message");
+
+    uint8_t data[] = {0xDB, 0xDB, 0xDB, 0xDb, 0xFE, 0xFE, 0xFE, 0xFE};
+    rylr_send_data(&usart1_buff, &usart1_dma, 25565, data, 8);
+    
     /* USER CODE END 2 */
 
     /* Infinite loop */
@@ -783,6 +791,49 @@ uint8_t find_crlf(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_char) {
 
 void process_char_loop(uart_buff_t* uart_buff, size_t peekahead, uint8_t* old_char) {
 
+}
+
+/**
+ * \brief           Send string via RYLR_998
+ * \param[in]       uart_buff: UART peripheral buffers to use
+ * \param[in]       dma_tx: DMA associated with UART TX
+ * \param[in]       address: LoRa address to send to
+ * \param[in]       str: Pointer to start of string
+ */
+uint8_t rylr_send_string(uart_buff_t* uart_buff, dma_tx_t* dma_tx, uint16_t address, char* str) {
+    size_t len;
+    char buffer[20];
+
+    len = strlen(str);
+    if(len <= 240) {
+        sprintf(buffer, "AT+SEND=%d,%d,", address, len);
+        uart_send_string(uart_buff, dma_tx, buffer);
+        uart_send_string(uart_buff, dma_tx, str);
+        uart_send_string(uart_buff, dma_tx, "\r\n");
+        return(0);
+    }
+    return(-1);
+}
+
+/**
+ * \brief           Send data via RYLR_998
+ * \param[in]       uart_buff: UART peripheral buffers to use
+ * \param[in]       dma_tx: DMA associated with UART TX
+ * \param[in]       address: LoRa address to send to
+ * \param[in]       data: Pointer to start of data
+ * \param[in]       len: Length of data being sent in bytes
+ */
+uint8_t rylr_send_data(uart_buff_t* uart_buff, dma_tx_t* dma_tx, uint16_t address, void* data, size_t len) {
+    char buffer[20];
+
+    if(len <=240) {
+        sprintf(buffer, "AT+SEND=%d,%d,", address, len);
+        uart_send_string(uart_buff, dma_tx, buffer);
+        uart_send_data(uart_buff, dma_tx, data, len);
+        uart_send_string(uart_buff, dma_tx, "\r\n");
+        return(0);
+    }
+    return(-1);
 }
 
 /* USER CODE END 4 */
